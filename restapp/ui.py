@@ -1,38 +1,29 @@
-import sys
+"""Модуль с UI-классами."""
+
 import os
 import ctypes
 from PyQt5 import QtWidgets, QtCore, QtGui
 from PyQt5.QtWidgets import QStyleOptionSlider, QStyle
 import pygame
 import math
-import random  # Добавлено для случайных значений в частицах
+import random
+from .audio import MEDIA, BREATH_CLICK
+from .utils import seconds_to_slider, slider_to_seconds
 
-# ---- Аудио ----
-pygame.mixer.init()
-pygame.mixer.set_num_channels(32)  # чтобы клики могли накладываться
-
-MEDIA = {
-    "Белый шум": ("white_noise.ogg", "white_noise.gif", "white_noise.png", "click.ogg"),
-    "Камин": ("fire.ogg", "fire.gif", "fire.png", "crack.ogg"),
-    "Дождь": ("rain.ogg", "rain.gif", "rain.png", "drop.ogg"),
-}
-
-BREATH_CLICK = "breath.ogg"  # отдельный клик для режима дыхания
-
-
-# ---- Кастомный виджет меток под слайдером ----
 class TickLabels(QtWidgets.QWidget):
-    def __init__(self, slider: QtWidgets.QSlider, marks_minutes, max_minutes: int):
+    """Кастомный виджет для меток под слайдером."""
+
+    def __init__(self, slider: QtWidgets.QSlider, marks_minutes: list[int], max_minutes: int):
         super().__init__()
         self.slider = slider
         self.marks = marks_minutes
         self.max_minutes = max_minutes
         self.setFixedHeight(24)
 
-    def paintEvent(self, e):
+    def paintEvent(self, e: QtGui.QPaintEvent) -> None:
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
-        pen = QtGui.QPen(QtGui.QColor("#CCCCCC"))  # светлый текст
+        pen = QtGui.QPen(QtGui.QColor("#CCCCCC"))  # Светлый текст
         painter.setPen(pen)
 
         opt = QStyleOptionSlider()
@@ -60,29 +51,30 @@ class TickLabels(QtWidgets.QWidget):
             tw = painter.fontMetrics().horizontalAdvance(text)
             painter.drawText(x - tw // 2, baseline, text)
 
-
-# ---- Кликабельная метка под гифку ----
 class ClickableLabel(QtWidgets.QLabel):
+    """Кликабельная метка для GIF."""
+
     clicked = QtCore.pyqtSignal()
-    def mousePressEvent(self, event: QtGui.QMouseEvent):
+
+    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
         self.clicked.emit()
         super().mousePressEvent(event)
 
-
-# ---- Промежуточный объект для плавного масштабирования QMovie ----
 class MovieScaler(QtCore.QObject):
-    def __init__(self, label: QtWidgets.QLabel, base_size=QtCore.QSize(240, 240)):
+    """Объект для плавного масштабирования QMovie."""
+
+    def __init__(self, label: QtWidgets.QLabel, base_size: QtCore.QSize = QtCore.QSize(240, 240)):
         super().__init__()
         self._scale = 1.0
         self.label = label
         self.base_size = base_size
 
     @QtCore.pyqtProperty(float)
-    def scale(self):
+    def scale(self) -> float:
         return self._scale
 
     @scale.setter
-    def scale(self, value: float):
+    def scale(self, value: float) -> None:
         self._scale = float(value)
         movie = self.label.movie()
         if movie:
@@ -90,33 +82,28 @@ class MovieScaler(QtCore.QObject):
             h = max(1, int(self.base_size.height() * self._scale))
             movie.setScaledSize(QtCore.QSize(w, h))
 
-
-# ---- Полупрозрачный оверлей дыхания ----
 class BreathingOverlay(QtWidgets.QWidget):
-    """Оверлей поверх gif_label с точной по времени анимацией дыхания 4–4–4–4."""
-    def __init__(self, parent=None, on_click=None):
+    """Оверлей для дыхательной анимации 4-4-4-4."""
+
+    def __init__(self, parent: QtWidgets.QWidget = None, on_click: callable = None):
         super().__init__(parent)
         self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
         self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, False)
         self.setStyleSheet("background: transparent;")
 
-        # Колбэк для прокидывания клика
         self._on_click = on_click
 
-        # Параметры дыхания (секунды)
         self.t_in = 4.0
         self.t_hold1 = 4.0
         self.t_out = 4.0
         self.t_hold2 = 4.0
         self.cycle = self.t_in + self.t_hold1 + self.t_out + self.t_hold2
 
-        # Таймер перерисовки; фазы считаем по монотонным часам
         self._timer = QtCore.QTimer(self)
         self._timer.setInterval(33)  # ~30 FPS
         self._timer.timeout.connect(self.update)
         self._elapsed = QtCore.QElapsedTimer()
 
-        # Кнопка выхода
         self.btn_exit = QtWidgets.QPushButton("ВЕРНУТЬСЯ", self)
         self.btn_exit.setCursor(QtCore.Qt.PointingHandCursor)
         self.btn_exit.setStyleSheet(
@@ -124,12 +111,11 @@ class BreathingOverlay(QtWidgets.QWidget):
             QPushButton { font-size: 28pt; font-weight: 900; color: #ffffff; background:#D32F2F; border:none; padding: 4px 16px; border-radius: 10px; }
             QPushButton:hover { background:#B71C1C; }
             """
-        )  # Уменьшен шрифт, чтобы текст влезал
+        )
         self.btn_exit.clicked.connect(self.hide)
 
-        # Частицы для внутренней анимации
         self.particles = []
-        for _ in range(10):  # 10 частиц
+        for _ in range(10):
             self.particles.append({
                 'pos': QtCore.QPointF(0, 0),
                 'vel': QtCore.QPointF(0, 0),
@@ -137,44 +123,43 @@ class BreathingOverlay(QtWidgets.QWidget):
                 'phase': random.random() * 2 * math.pi
             })
 
-    def showEvent(self, e):
+    def showEvent(self, e: QtGui.QShowEvent) -> None:
         self._elapsed.start()
         self._timer.start()
         self.update()
-        return super().showEvent(e)
+        super().showEvent(e)
 
-    def hideEvent(self, e):
+    def hideEvent(self, e: QtGui.QHideEvent) -> None:
         self._timer.stop()
-        return super().hideEvent(e)
+        super().hideEvent(e)
 
-    def resizeEvent(self, e):
+    def resizeEvent(self, e: QtGui.QResizeEvent) -> None:
         self.btn_exit.adjustSize()
         margin = 12
-        # Позиционирование кнопки справа от GIF
         gif_width = self.parent().gif_label.width() if self.parent() else self.width() // 2
         self.btn_exit.move(gif_width + margin, margin)
-        return super().resizeEvent(e)
+        super().resizeEvent(e)
 
-    def mousePressEvent(self, e: QtGui.QMouseEvent):
+    def mousePressEvent(self, e: QtGui.QMouseEvent) -> None:
         if callable(self._on_click):
             self._on_click()
-        return super().mousePressEvent(e)
+        super().mousePressEvent(e)
 
     def _radius_for_time(self, t_norm: float, base: float, amp: float) -> float:
         t = t_norm
-        if t < self.t_in:  # вдох 0→1
+        if t < self.t_in:
             k = t / self.t_in
             return base + amp * k
         t -= self.t_in
-        if t < self.t_hold1:  # пауза на пике
+        if t < self.t_hold1:
             return base + amp
         t -= self.t_hold1
-        if t < self.t_out:  # выдох 1→0
+        if t < self.t_out:
             k = 1.0 - (t / self.t_out)
             return base + amp * k
-        return base  # нижняя пауза
+        return base
 
-    def paintEvent(self, e):
+    def paintEvent(self, e: QtGui.QPaintEvent) -> None:
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
 
@@ -188,12 +173,11 @@ class BreathingOverlay(QtWidgets.QWidget):
         t = (self._elapsed.elapsed() / 1000.0) % self.cycle
         radius = self._radius_for_time(t, base, amp)
 
-        # Затухание: alpha уменьшается на выдохе
         alpha_factor = 1.0
         phase = t % self.cycle
         if phase >= self.t_in + self.t_hold1 and phase < self.t_in + self.t_hold1 + self.t_out:
             elapsed_out = phase - (self.t_in + self.t_hold1)
-            alpha_factor = 1.0 - (elapsed_out / self.t_out) * 0.5  # Затухает до 50%
+            alpha_factor = 1.0 - (elapsed_out / self.t_out) * 0.5
 
         grad = QtGui.QRadialGradient(center, radius)
         color = QtGui.QColor(144, 202, 249, int(140 * alpha_factor))
@@ -205,13 +189,11 @@ class BreathingOverlay(QtWidgets.QWidget):
         painter.setBrush(QtGui.QBrush(grad))
         painter.drawEllipse(center, int(radius), int(radius))
 
-        # Внутренние частицы с "физикой" (синусоидальное плавание, реакция на радиус)
-        scale_factor = radius / (base + amp / 2)  # Масштаб относительно среднего радиуса
+        scale_factor = radius / (base + amp / 2)
         for p in self.particles:
-            p['phase'] += 0.05  # Скорость движения
+            p['phase'] += 0.05
             offset_x = math.sin(p['phase']) * (radius * 0.4)
             offset_y = math.cos(p['phase']) * (radius * 0.4)
-            # "Физика": частицы сжимаются/расширяются с кругом
             p['pos'] = QtCore.QPointF(offset_x * scale_factor, offset_y * scale_factor)
 
             p_grad = QtGui.QRadialGradient(center + p['pos'], p['radius'])
@@ -222,9 +204,10 @@ class BreathingOverlay(QtWidgets.QWidget):
             painter.setBrush(QtGui.QBrush(p_grad))
             painter.drawEllipse(center + p['pos'], int(p['radius']), int(p['radius']))
 
-
 class SelectableButton(QtWidgets.QPushButton):
-    def __init__(self, text, icon=None):
+    """Выбираемая кнопка для режимов."""
+
+    def __init__(self, text: str, icon: str = None):
         super().__init__(text)
         self.setCheckable(True)
         self.setCursor(QtCore.Qt.PointingHandCursor)
@@ -247,15 +230,14 @@ class SelectableButton(QtWidgets.QPushButton):
             }
         """)
 
-
-# ---- Основное окно ----
 class SleepTimer(QtWidgets.QWidget):
+    """Основное окно приложения."""
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Таймер сна 💤")
         self.setGeometry(200, 200, 700, 600)
 
-        # ночной фон
         self.setStyleSheet(
             """
             QWidget { background-color: #1E1E1E; color: #CCCCCC; font-family: Segoe UI, sans-serif; font-size: 12pt; }
@@ -269,7 +251,6 @@ class SleepTimer(QtWidgets.QWidget):
 
         root = QtWidgets.QVBoxLayout(self)
 
-        # ----- Время -----
         self.label_time = QtWidgets.QLabel()
         root.addWidget(self.label_time)
 
@@ -283,7 +264,6 @@ class SleepTimer(QtWidgets.QWidget):
         self.max_minutes = 240
         root.addWidget(TickLabels(self.slider, self.marks_minutes, self.max_minutes))
 
-        # ----- Большие кнопки режима -----
         mode_layout = QtWidgets.QHBoxLayout()
         self.btn_mute = SelectableButton("Выключить звук 🔇")
         self.btn_shutdown = SelectableButton("Выключить ноут 💀")
@@ -296,7 +276,6 @@ class SleepTimer(QtWidgets.QWidget):
         self.mode_group.addButton(self.btn_shutdown)
         self.btn_mute.setChecked(True)
 
-        # ----- Громкость -----
         self.label_vol = QtWidgets.QLabel()
         root.addWidget(self.label_vol)
 
@@ -308,7 +287,6 @@ class SleepTimer(QtWidgets.QWidget):
         self.slider_vol.valueChanged.connect(self.change_volume)
         root.addWidget(self.slider_vol)
 
-        # ----- Кнопка запуска ----
         self.btn_action = QtWidgets.QPushButton("Запустить таймер 🚀")
         self.btn_action.setCursor(QtCore.Qt.PointingHandCursor)
         self.btn_action.clicked.connect(self.on_action_button)
@@ -317,18 +295,15 @@ class SleepTimer(QtWidgets.QWidget):
         )
         root.addWidget(self.btn_action)
 
-        # ----- Центральная гифка -----
         self.gif_label = ClickableLabel(alignment=QtCore.Qt.AlignCenter)
         root.addWidget(self.gif_label, alignment=QtCore.Qt.AlignCenter)
 
-        # Баунс через масштабирование QMovie
         self.scaler = MovieScaler(self.gif_label, QtCore.QSize(240, 240))
         self.bounce_anim = QtCore.QPropertyAnimation(self.scaler, b"scale")
         self.bounce_anim.setDuration(260)
         self.bounce_anim.setEasingCurve(QtCore.QEasingCurve.InOutCubic)
         self.gif_label.clicked.connect(self.on_gif_clicked)
 
-        # ----- Плитки выбора звука -----
         sound_layout = QtWidgets.QHBoxLayout()
         self.sound_buttons = {}
         for name, (wav, gif, preview, sfx) in MEDIA.items():
@@ -340,7 +315,6 @@ class SleepTimer(QtWidgets.QWidget):
             self.sound_buttons[name] = btn
         root.addLayout(sound_layout)
 
-        # ----- Таймер -----
         self.max_time = self.max_minutes * 60
         self.remaining_time = 90 * 60
         self.timer_active = False
@@ -348,46 +322,34 @@ class SleepTimer(QtWidgets.QWidget):
         self.qtimer = QtCore.QTimer()
         self.qtimer.timeout.connect(self.update_countdown)
 
-        # ---- Звуковые эффекты ----
         self.current_effect = None
 
-        # ---- Логика "5 кликов за ≤1.5 c" ----
         self.click_times = []
         self.breathing_overlay = BreathingOverlay(self, on_click=self.on_breathing_click)
         self.breathing_overlay.hide()
 
         self.update_ui()
-        self.on_sound_change("Камин")  # дефолт
+        self.on_sound_change("Камин")
 
-    # ---- Время ----
-    def seconds_to_slider(self, seconds):
-        return int((seconds / self.max_time) * 1000)
-
-    def slider_to_seconds(self, value):
-        return max(60, int((value / 1000) * self.max_time))
-
-    def update_ui(self):
+    def update_ui(self) -> None:
         mins = self.remaining_time // 60
         secs = self.remaining_time % 60
         self.label_time.setText(f"Осталось: {mins} мин. {secs:02d} сек.")
         self.slider.blockSignals(True)
-        self.slider.setValue(self.seconds_to_slider(self.remaining_time))
+        self.slider.setValue(seconds_to_slider(self.remaining_time, self.max_time))
         self.slider.blockSignals(False)
 
-    # ---- Громкость ----
-    def change_volume(self):
+    def change_volume(self) -> None:
         vol = self.slider_vol.value()
         pygame.mixer.music.set_volume(vol / 100)
         self.label_vol.setText(f"Громкость: {vol}%")
         self.settings.setValue("vol_is_zero", vol == 0)
 
-    # ---- Звук и гифка ----
-    def on_sound_change(self, name):
+    def on_sound_change(self, name: str) -> None:
         for n, btn in self.sound_buttons.items():
             btn.setChecked(n == name)
 
         wav, gif, preview, sfx = MEDIA[name]
-        # Основной фон
         if os.path.exists(wav):
             try:
                 pygame.mixer.music.load(wav)
@@ -395,7 +357,6 @@ class SleepTimer(QtWidgets.QWidget):
                 pygame.mixer.music.play(-1)
             except Exception:
                 pass
-        # Гифка
         if gif and os.path.exists(gif):
             movie = QtGui.QMovie(gif)
             movie.setScaledSize(QtCore.QSize(240, 240))
@@ -403,13 +364,10 @@ class SleepTimer(QtWidgets.QWidget):
             movie.start()
         else:
             self.gif_label.clear()
-        # Клик-эффект
         self.current_effect = pygame.mixer.Sound(sfx) if os.path.exists(sfx) else None
 
-    # ---- Клик по гифке ----
-    def on_gif_clicked(self):
+    def on_gif_clicked(self) -> None:
         now = QtCore.QTime.currentTime().msecsSinceStartOfDay()
-        # оставляем только клики в пределах 1.5 сек
         self.click_times = [t for t in self.click_times if now - t < 1500]
         self.click_times.append(now)
         if len(self.click_times) >= 5:
@@ -417,7 +375,6 @@ class SleepTimer(QtWidgets.QWidget):
             self.click_times.clear()
             return
 
-        # Обычный режим: уменьшающийся bounce + наложение эффекта на свободном канале
         if not self.breathing_overlay.isVisible():
             self.bounce_anim.stop()
             self.bounce_anim.setStartValue(1.0)
@@ -429,11 +386,9 @@ class SleepTimer(QtWidgets.QWidget):
                 if ch:
                     ch.play(self.current_effect)
         else:
-            # Если открыт дыхательный оверлей — клики ловятся им, но на всякий случай:
             self.on_breathing_click()
 
-    def on_breathing_click(self):
-        # Инвертированный bounce (увеличиваем гифку) и отдельный звук дыхательного режима
+    def on_breathing_click(self) -> None:
         self.bounce_anim.stop()
         self.bounce_anim.setStartValue(1.0)
         self.bounce_anim.setKeyValueAt(0.5, 1.15)
@@ -448,24 +403,22 @@ class SleepTimer(QtWidgets.QWidget):
             except Exception:
                 pass
 
-    def activate_breathing_mode(self):
-        # Расширяем оверлей вправо для места под кнопку
+    def activate_breathing_mode(self) -> None:
         gif_rect = self.gif_label.geometry()
-        extra_space = 200  # Дополнительное пространство справа
+        extra_space = 200
         self.breathing_overlay.setGeometry(gif_rect.x(), gif_rect.y(), gif_rect.width() + extra_space, gif_rect.height())
         self.breathing_overlay.show()
         self.breathing_overlay.raise_()
 
-    def resizeEvent(self, e: QtGui.QResizeEvent):
+    def resizeEvent(self, e: QtGui.QResizeEvent) -> None:
         if self.breathing_overlay.isVisible():
             gif_rect = self.gif_label.geometry()
             extra_space = 200
             self.breathing_overlay.setGeometry(gif_rect.x(), gif_rect.y(), gif_rect.width() + extra_space, gif_rect.height())
             self.breathing_overlay.raise_()
-        return super().resizeEvent(e)
+        super().resizeEvent(e)
 
-    # ---- Кнопка действия ----
-    def on_action_button(self):
+    def on_action_button(self) -> None:
         if not self.timer_active:
             self.start_timer()
             self.btn_action.setText("Пауза ⏸️")
@@ -478,12 +431,12 @@ class SleepTimer(QtWidgets.QWidget):
             self.paused = False
             self.btn_action.setText("Пауза ⏸️")
 
-    def start_timer(self):
+    def start_timer(self) -> None:
         self.timer_active = True
         self.paused = False
         self.qtimer.start(1000)
 
-    def update_countdown(self):
+    def update_countdown(self) -> None:
         if self.remaining_time > 0:
             self.remaining_time -= 1
             self.update_ui()
@@ -496,23 +449,14 @@ class SleepTimer(QtWidgets.QWidget):
             else:
                 self.shutdown_pc()
 
-    def on_slider_released(self):
-        self.remaining_time = self.slider_to_seconds(self.slider.value())
+    def on_slider_released(self) -> None:
+        self.remaining_time = slider_to_seconds(self.slider.value(), self.max_time)
         self.update_ui()
 
-    # ---- Действия завершения ----
-    def mute_sound(self):
+    def mute_sound(self) -> None:
         VK_VOLUME_MUTE = 0xAD
         ctypes.windll.user32.keybd_event(VK_VOLUME_MUTE, 0, 0, 0)
         ctypes.windll.user32.keybd_event(VK_VOLUME_MUTE, 0, 2, 0)
 
-    def shutdown_pc(self):
+    def shutdown_pc(self) -> None:
         os.system("shutdown /s /f /t 0")
-
-
-# ---- Запуск ----
-if __name__ == "__main__":
-    app = QtWidgets.QApplication(sys.argv)
-    window = SleepTimer()
-    window.show()
-    sys.exit(app.exec_())
