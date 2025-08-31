@@ -665,20 +665,22 @@ class SleepTimer(QtWidgets.QWidget):
                 self.breathing_overlay.hide()
 
     def activate_breathing_mode(self) -> None:
-        """Показываем overlay около GIF-а (взято из твоей логики)."""
+        """Показываем overlay точно по гифке."""
         try:
-            gif_rect = self.gif_container.geometry()
-            extra_space = 200
-            self.breathing_overlay.setGeometry(gif_rect.x(), gif_rect.y(),
-                                               gif_rect.width() + extra_space, gif_rect.height())
-            # используем play_intro если есть
+            gif_rect = self.gif_label.geometry()
+            # overlay совпадает с gif_label
+            self.breathing_overlay.setGeometry(
+                self.gif_container.x() + gif_rect.x(),
+                self.gif_container.y() + gif_rect.y(),
+                gif_rect.width(),
+                gif_rect.height()
+            )
             try:
                 self.breathing_overlay.play_intro()
             except Exception:
                 self.breathing_overlay.show()
             self.breathing_overlay.raise_()
         except Exception:
-            # на случай, если что-то с геометрией пойдет не так
             try:
                 self.breathing_overlay.show()
                 self.breathing_overlay.raise_()
