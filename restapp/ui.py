@@ -287,6 +287,7 @@ class SleepTimer(QtWidgets.QWidget):
 
     def __init__(self):
         super().__init__()
+        self.current_effect = None
         self.setWindowTitle("Таймер сна 💤")
         self.setGeometry(200, 200, 700, 600)
 
@@ -341,6 +342,7 @@ class SleepTimer(QtWidgets.QWidget):
         self.slider_vol.setValue(0 if vol_is_zero else 20)
         self.slider_vol.valueChanged.connect(self.change_volume)
         root.addWidget(self.slider_vol)
+        self.change_volume(self.slider_vol.value())
 
         # Кнопка старта (единственная кнопка, потом меняет текст)
         self.btn_action = QtWidgets.QPushButton("Запустить таймер 🚀")
