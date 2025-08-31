@@ -253,8 +253,8 @@ class BreathingOverlay(QtWidgets.QWidget):
         self._bounce_timer.start()
 
     def update_bounce(self):
-        self._bounce_phase += 0.08
-        self._bounce_scale = 1.0 + math.sin(self._bounce_phase) * 0.1
+        self._bounce_phase += 0.16  # Было 0.08, теперь быстрее
+        self._bounce_scale = 1.0 + math.sin(self._bounce_phase) * 0.04  # Было 0.1, теперь слабее
         self.update()
         if self._bounce_phase > math.pi * 2:
             self._bounce_timer.stop()
