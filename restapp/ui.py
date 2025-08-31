@@ -209,6 +209,13 @@ class BreathingOverlay(QtWidgets.QWidget):
                 'phase': random.random() * 2 * math.pi
             })
 
+        # --- добавьте для баунса ---
+        self._bounce_phase = 0.0
+        self._bounce_scale = 1.0
+        self._bounce_timer = QtCore.QTimer(self)
+        self._bounce_timer.setInterval(16)
+        self._bounce_timer.timeout.connect(self.update_bounce)
+
     # Заглушки intro/outro (на случай, если код в SleepTimer вызывает их)
     def play_intro(self, finished_callback=None):
         self.show()
@@ -241,12 +248,25 @@ class BreathingOverlay(QtWidgets.QWidget):
         self.btn_exit.move(gif_width + margin, margin)
         super().resizeEvent(e)
 
+    def start_bounce(self):
+        self._bounce_phase = 0.0
+        self._bounce_timer.start()
+
+    def update_bounce(self):
+        self._bounce_phase += 0.16  # Было 0.08, теперь быстрее
+        self._bounce_scale = 1.0 + math.sin(self._bounce_phase) * 0.04  # Было 0.1, теперь слабее
+        self.update()
+        if self._bounce_phase > math.pi * 2:
+            self._bounce_timer.stop()
+            self._bounce_scale = 1.0
+
     def mousePressEvent(self, e: QtGui.QMouseEvent) -> None:
         if callable(self._on_click):
             try:
                 self._on_click()
             except Exception:
                 pass
+        self.start_bounce()  # <-- добавьте вызов баунса
         super().mousePressEvent(e)
 
     def _radius_for_time(self, t_norm: float, base: float, amp: float) -> float:
@@ -278,6 +298,9 @@ class BreathingOverlay(QtWidgets.QWidget):
         t = (self._elapsed.elapsed() / 1000.0) if self._elapsed.isValid() else 0.0
         t = t % self.cycle
         radius = self._radius_for_time(t, base, amp)
+
+        # --- применяем bounce scale ---
+        radius *= getattr(self, "_bounce_scale", 1.0)
 
         alpha_factor = 1.0
         phase = t
@@ -472,6 +495,15 @@ class SleepTimer(QtWidgets.QWidget):
             if names:
                 self.on_sound_change(names[0])
 
+        # загрузка эффекта дыхания (если файл существует)
+        if os.path.exists(BREATH_CLICK):
+            try:
+                self.breath_effect = pygame.mixer.Sound(BREATH_CLICK)
+            except Exception:
+                self.breath_effect = None
+        else:
+            self.breath_effect = None
+
     # ---------------- UI / таймер ----------------
 
     def update_ui(self) -> None:
@@ -609,12 +641,23 @@ class SleepTimer(QtWidgets.QWidget):
             self.activate_breathing_mode()
 
     def on_breathing_click(self) -> None:
-        """Клик внутри оверлея дыхания: считаем клики для выхода (5 кликов)."""
+        """Клик внутри оверлея дыхания: считаем клики для выхода (8 кликов)."""
+        # Воспроизведение клика-эффекта даже в режиме дыхания
+        if self.current_effect:
+            try:
+                vol = self.slider_vol.value() / 100.0
+                ch = pygame.mixer.find_channel(True)
+                if ch:
+                    ch.set_volume(vol)
+                    ch.play(self.breath_effect)
+            except Exception:
+                pass
+
         now = time.time()
         self.click_times = [t for t in self.click_times if now - t < 1.5]
         self.click_times.append(now)
-        # при 5 кликах — выйти (плавно если оверлей поддерживает outro)
-        if len(self.click_times) >= 5:
+        # при N кликах — выйти (плавно если оверлей поддерживает outro)
+        if len(self.click_times) >= 8:
             self.click_times.clear()
             try:
                 self.breathing_overlay.play_outro(self.breathing_overlay.hide)
@@ -622,20 +665,22 @@ class SleepTimer(QtWidgets.QWidget):
                 self.breathing_overlay.hide()
 
     def activate_breathing_mode(self) -> None:
-        """Показываем overlay около GIF-а (взято из твоей логики)."""
+        """Показываем overlay точно по гифке."""
         try:
-            gif_rect = self.gif_container.geometry()
-            extra_space = 200
-            self.breathing_overlay.setGeometry(gif_rect.x(), gif_rect.y(),
-                                               gif_rect.width() + extra_space, gif_rect.height())
-            # используем play_intro если есть
+            gif_rect = self.gif_label.geometry()
+            # overlay совпадает с gif_label
+            self.breathing_overlay.setGeometry(
+                self.gif_container.x() + gif_rect.x(),
+                self.gif_container.y() + gif_rect.y(),
+                gif_rect.width(),
+                gif_rect.height()
+            )
             try:
                 self.breathing_overlay.play_intro()
             except Exception:
                 self.breathing_overlay.show()
             self.breathing_overlay.raise_()
         except Exception:
-            # на случай, если что-то с геометрией пойдет не так
             try:
                 self.breathing_overlay.show()
                 self.breathing_overlay.raise_()
