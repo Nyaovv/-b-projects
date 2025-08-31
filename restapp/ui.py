@@ -187,17 +187,20 @@ class BreathingOverlay(QtWidgets.QWidget):
         self._timer.timeout.connect(self.update)
         self._elapsed = QtCore.QElapsedTimer()
 
-        # кнопка возврата (в углу)
-        self.btn_exit = QtWidgets.QPushButton("ВЕРНУТЬСЯ", self)
+        # кнопка возврата (в угле)
+        self.btn_exit = QtWidgets.QPushButton("←", self)
+        self.btn_exit.setToolTip("Вернуться к обычному режиму")
         self.btn_exit.setCursor(QtCore.Qt.PointingHandCursor)
-        self.btn_exit.setStyleSheet(
-            """
-            QPushButton { font-size: 18pt; font-weight: 700; color: #ffffff; background:#D32F2F; border:none; padding:6px 12px; border-radius:8px; }
-            QPushButton:hover { background:#B71C1C; }
-            """
-        )
+        self.btn_exit.setStyleSheet("""
+            QPushButton {
+                font-size: 20pt; font-weight: bold; color: #fff;
+                background: #D32F2F; border: none; border-radius: 20px;
+                padding: 8px 12px; box-shadow: 0 2px 8px #0008;
+            }
+            QPushButton:hover { background: #B71C1C; }
+        """)
         # при нажатии вызываем плавное исчезновение, если вызывают play_outro, то он и закроет
-        self.btn_exit.clicked.connect(self.hide)
+        self.btn_exit.clicked.connect(lambda: self.play_outro(self.hide))
 
         # частицы (маленькие шарики)
         self.particles = []
@@ -242,10 +245,10 @@ class BreathingOverlay(QtWidgets.QWidget):
         super().hideEvent(e)
 
     def resizeEvent(self, e: QtGui.QResizeEvent) -> None:
-        self.btn_exit.adjustSize()
-        margin = 12
-        gif_width = self.parent().gif_container.width() if self.parent() else self.width() // 2
-        self.btn_exit.move(gif_width + margin, margin)
+        margin = 16
+        btn_size = self.btn_exit.sizeHint()
+        self.btn_exit.setFixedSize(btn_size)
+        self.btn_exit.move(self.width() - btn_size.width() - margin, margin)
         super().resizeEvent(e)
 
     def start_bounce(self):
@@ -268,6 +271,11 @@ class BreathingOverlay(QtWidgets.QWidget):
                 pass
         self.start_bounce()  # <-- добавьте вызов баунса
         super().mousePressEvent(e)
+
+    def keyPressEvent(self, e: QtGui.QKeyEvent) -> None:
+        if e.key() == QtCore.Qt.Key_Escape:
+            self.play_outro(self.hide)
+        super().keyPressEvent(e)
 
     def _radius_for_time(self, t_norm: float, base: float, amp: float) -> float:
         # та же кривая, что и раньше
