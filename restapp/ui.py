@@ -209,6 +209,13 @@ class BreathingOverlay(QtWidgets.QWidget):
                 'phase': random.random() * 2 * math.pi
             })
 
+        # --- добавьте для баунса ---
+        self._bounce_phase = 0.0
+        self._bounce_scale = 1.0
+        self._bounce_timer = QtCore.QTimer(self)
+        self._bounce_timer.setInterval(16)
+        self._bounce_timer.timeout.connect(self.update_bounce)
+
     # Заглушки intro/outro (на случай, если код в SleepTimer вызывает их)
     def play_intro(self, finished_callback=None):
         self.show()
@@ -241,12 +248,25 @@ class BreathingOverlay(QtWidgets.QWidget):
         self.btn_exit.move(gif_width + margin, margin)
         super().resizeEvent(e)
 
+    def start_bounce(self):
+        self._bounce_phase = 0.0
+        self._bounce_timer.start()
+
+    def update_bounce(self):
+        self._bounce_phase += 0.08
+        self._bounce_scale = 1.0 + math.sin(self._bounce_phase) * 0.1
+        self.update()
+        if self._bounce_phase > math.pi * 2:
+            self._bounce_timer.stop()
+            self._bounce_scale = 1.0
+
     def mousePressEvent(self, e: QtGui.QMouseEvent) -> None:
         if callable(self._on_click):
             try:
                 self._on_click()
             except Exception:
                 pass
+        self.start_bounce()  # <-- добавьте вызов баунса
         super().mousePressEvent(e)
 
     def _radius_for_time(self, t_norm: float, base: float, amp: float) -> float:
@@ -278,6 +298,9 @@ class BreathingOverlay(QtWidgets.QWidget):
         t = (self._elapsed.elapsed() / 1000.0) if self._elapsed.isValid() else 0.0
         t = t % self.cycle
         radius = self._radius_for_time(t, base, amp)
+
+        # --- применяем bounce scale ---
+        radius *= getattr(self, "_bounce_scale", 1.0)
 
         alpha_factor = 1.0
         phase = t
