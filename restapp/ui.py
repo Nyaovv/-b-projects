@@ -108,21 +108,26 @@ class GifOverlayAnimator(QtWidgets.QWidget):
         self.timer.setInterval(16)  # ~60 FPS
         self.timer.timeout.connect(self.update_animation)
         self.phase = 0.0
-        self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
         self.setAttribute(QtCore.Qt.WA_NoSystemBackground, True)
         self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
         self.hide()
         self.setGeometry(self.label.geometry())
         self.raise_()
 
+    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
+        self.label.clicked.emit()
+        super().mousePressEvent(event)
+
     def start_bounce(self):
         self.phase = 0.0
+        self.label.hide()
         self.show()
         self.raise_()
         self.timer.start()
 
     def stop_bounce(self):
         self.timer.stop()
+        self.label.show()
         self.hide()
 
     def update_animation(self):
@@ -149,8 +154,8 @@ class GifOverlayAnimator(QtWidgets.QWidget):
 
         w = int(self.base_size.width() * self._scale)
         h = int(self.base_size.height() * self._scale)
-        x = self.label.x() + (self.label.width() - w) // 2 + int(self._offset.x())
-        y = self.label.y() + (self.label.height() - h) // 2 + int(self._offset.y())
+        x = (self.width() - w) // 2 + int(self._offset.x())
+        y = (self.height() - h) // 2 + int(self._offset.y())
 
         painter.drawPixmap(x, y, w, h, frame)
 
@@ -232,7 +237,7 @@ class BreathingOverlay(QtWidgets.QWidget):
     def resizeEvent(self, e: QtGui.QResizeEvent) -> None:
         self.btn_exit.adjustSize()
         margin = 12
-        gif_width = self.parent().gif_label.width() if self.parent() else self.width() // 2
+        gif_width = self.parent().gif_container.width() if self.parent() else self.width() // 2
         self.btn_exit.move(gif_width + margin, margin)
         super().resizeEvent(e)
 
@@ -412,14 +417,20 @@ class SleepTimer(QtWidgets.QWidget):
         )
         root.addWidget(self.btn_action)
 
+        # GIF container
+        self.gif_container = QtWidgets.QWidget()
+        self.gif_container.setFixedSize(240, 240)
+        root.addWidget(self.gif_container, alignment=QtCore.Qt.AlignCenter)
+
         # GIF
-        self.gif_label = ClickableLabel(alignment=QtCore.Qt.AlignCenter)
-        root.addWidget(self.gif_label, alignment=QtCore.Qt.AlignCenter)
+        self.gif_label = ClickableLabel(self.gif_container, alignment=QtCore.Qt.AlignCenter)
+        self.gif_label.setGeometry(0, 0, 240, 240)
 
         # Аниматор для GIF (поверх, вместо QPropertyAnimation)
         self.gif_animator = GifOverlayAnimator(self.gif_label, QtCore.QSize(240, 240))
+        self.gif_animator.setGeometry(0, 0, 240, 240)
+
         self.gif_label.clicked.connect(self.on_gif_clicked)
-        self.gif_animator.setGeometry(self.gif_label.geometry())
 
         # Кнопки-превью звуков
         sound_layout = QtWidgets.QHBoxLayout()
@@ -613,7 +624,7 @@ class SleepTimer(QtWidgets.QWidget):
     def activate_breathing_mode(self) -> None:
         """Показываем overlay около GIF-а (взято из твоей логики)."""
         try:
-            gif_rect = self.gif_label.geometry()
+            gif_rect = self.gif_container.geometry()
             extra_space = 200
             self.breathing_overlay.setGeometry(gif_rect.x(), gif_rect.y(),
                                                gif_rect.width() + extra_space, gif_rect.height())
@@ -635,7 +646,7 @@ class SleepTimer(QtWidgets.QWidget):
         try:
             # обновим breathing_overlay
             if self.breathing_overlay.isVisible():
-                gif_rect = self.gif_label.geometry()
+                gif_rect = self.gif_container.geometry()
                 extra_space = 200
                 self.breathing_overlay.setGeometry(gif_rect.x(), gif_rect.y(),
                                                    gif_rect.width() + extra_space, gif_rect.height())
@@ -646,7 +657,7 @@ class SleepTimer(QtWidgets.QWidget):
         try:
             # обновим gif_animator
             if self.gif_animator.isVisible():
-                self.gif_animator.setGeometry(self.gif_label.geometry())
+                self.gif_animator.setGeometry(0, 0, self.gif_container.width(), self.gif_container.height())
                 self.gif_animator.raise_()
         except Exception:
             pass
