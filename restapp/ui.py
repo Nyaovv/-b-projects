@@ -528,9 +528,10 @@ class SleepTimer(QtWidgets.QWidget):
         # воспроизведение клика-эффекта через свободный канал, с громкостью из ползунка
         if self.current_effect:
             try:
-                self.current_effect.set_volume(self.slider_vol.value() / 100.0)
+                vol = self.slider_vol.value() / 100.0
                 ch = pygame.mixer.find_channel(True)
                 if ch:
+                    ch.set_volume(vol)   # громкость задаём на канале!
                     ch.play(self.current_effect)
             except Exception:
                 pass
