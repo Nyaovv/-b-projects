@@ -472,6 +472,7 @@ class SleepTimer(QtWidgets.QWidget):
             if names:
                 self.on_sound_change(names[0])
 
+        # загрузка эффекта дыхания (если файл существует)
         if os.path.exists(BREATH_CLICK):
             try:
                 self.breath_effect = pygame.mixer.Sound(BREATH_CLICK)
@@ -611,15 +612,15 @@ class SleepTimer(QtWidgets.QWidget):
             except Exception:
                 pass
 
-        # пасхалка: 7 кликов включают режим дыхания
-        if len(self.click_times) >= 7:
+        # пасхалка: 5 кликов включают режим дыхания
+        if len(self.click_times) >= 5:
             self.click_times.clear()
             self.activate_breathing_mode()
 
     def on_breathing_click(self) -> None:
         """Клик внутри оверлея дыхания: считаем клики для выхода (8 кликов)."""
-        # Воспроизведение breath.ogg при клике в режиме дыхания
-        if hasattr(self, "breath_effect") and self.breath_effect:
+        # Воспроизведение клика-эффекта даже в режиме дыхания
+        if self.current_effect:
             try:
                 vol = self.slider_vol.value() / 100.0
                 ch = pygame.mixer.find_channel(True)
