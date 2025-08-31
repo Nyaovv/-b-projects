@@ -95,6 +95,65 @@ class MovieScaler(QtCore.QObject):
             h = max(1, int(self.base_size.height() * self._scale))
             movie.setScaledSize(QtCore.QSize(w, h))
 
+class GifOverlayAnimator(QtWidgets.QWidget):
+    """Аниматор поверх GIF для плавного скейла и рандомного движения."""
+
+    def __init__(self, target_label: QtWidgets.QLabel, base_size: QtCore.QSize = QtCore.QSize(240, 240)):
+        super().__init__(target_label.parent())
+        self.label = target_label
+        self.base_size = base_size
+        self._scale = 1.0
+        self._offset = QtCore.QPointF(0, 0)
+        self.timer = QtCore.QTimer(self)
+        self.timer.setInterval(16)  # ~60 FPS
+        self.timer.timeout.connect(self.update_animation)
+        self.phase = 0.0
+        self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
+        self.setAttribute(QtCore.Qt.WA_NoSystemBackground, True)
+        self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
+        self.hide()
+        self.setGeometry(self.label.geometry())
+        self.raise_()
+
+    def start_bounce(self):
+        self.phase = 0.0
+        self.show()
+        self.raise_()
+        self.timer.start()
+
+    def stop_bounce(self):
+        self.timer.stop()
+        self.hide()
+
+    def update_animation(self):
+        self.phase += 0.08
+        self._scale = 1.0 + math.sin(self.phase) * 0.1  # подпрыгивает до ±10%
+        dx = math.sin(self.phase * 1.5) * 3
+        dy = math.cos(self.phase * 1.3) * 3
+        self._offset = QtCore.QPointF(dx, dy)
+        self.update()
+
+        # через 1.2 сек остановить
+        if self.phase > math.pi * 2:
+            self.stop_bounce()
+
+    def paintEvent(self, e: QtGui.QPaintEvent) -> None:
+        if not self.label.movie():
+            return
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
+        movie = self.label.movie()
+        frame = movie.currentPixmap()
+        if frame.isNull():
+            return
+
+        w = int(self.base_size.width() * self._scale)
+        h = int(self.base_size.height() * self._scale)
+        x = self.label.x() + (self.label.width() - w) // 2 + int(self._offset.x())
+        y = self.label.y() + (self.label.height() - h) // 2 + int(self._offset.y())
+
+        painter.drawPixmap(x, y, w, h, frame)
+
 
 # ------------------------------------------------------------------
 # Оверлей дыхания (упрощённый, но с заглушками intro/outro)
@@ -357,12 +416,10 @@ class SleepTimer(QtWidgets.QWidget):
         self.gif_label = ClickableLabel(alignment=QtCore.Qt.AlignCenter)
         root.addWidget(self.gif_label, alignment=QtCore.Qt.AlignCenter)
 
-        # Скалер для оживления QMovie размера
-        self.scaler = MovieScaler(self.gif_label, QtCore.QSize(240, 240))
-        self.bounce_anim = QtCore.QPropertyAnimation(self.scaler, b"scale")
-        self.bounce_anim.setDuration(260)
-        self.bounce_anim.setEasingCurve(QtCore.QEasingCurve.InOutCubic)
+        # Аниматор для GIF (поверх, вместо QPropertyAnimation)
+        self.gif_animator = GifOverlayAnimator(self.gif_label, QtCore.QSize(240, 240))
         self.gif_label.clicked.connect(self.on_gif_clicked)
+        self.gif_animator.setGeometry(self.gif_label.geometry())
 
         # Кнопки-превью звуков
         sound_layout = QtWidgets.QHBoxLayout()
@@ -517,15 +574,12 @@ class SleepTimer(QtWidgets.QWidget):
         self.click_times = [t for t in self.click_times if now - t < 1.5]
         self.click_times.append(now)
 
-        # короткая анимация масштабирования
+        # плавное подпрыгивание
         try:
-            self.bounce_anim.stop()
-            self.bounce_anim.setStartValue(1.0)
-            self.bounce_anim.setKeyValueAt(0.5, 0.9)
-            self.bounce_anim.setEndValue(1.0)
-            self.bounce_anim.start()
+            self.gif_animator.start_bounce()
         except Exception:
             pass
+
 
         # воспроизведение клика-эффекта через свободный канал, с громкостью из ползунка
         if self.current_effect:
@@ -578,8 +632,8 @@ class SleepTimer(QtWidgets.QWidget):
                 pass
 
     def resizeEvent(self, e: QtGui.QResizeEvent) -> None:
-        # если overlay виден — обновим его позицию
         try:
+            # обновим breathing_overlay
             if self.breathing_overlay.isVisible():
                 gif_rect = self.gif_label.geometry()
                 extra_space = 200
@@ -588,7 +642,17 @@ class SleepTimer(QtWidgets.QWidget):
                 self.breathing_overlay.raise_()
         except Exception:
             pass
+
+        try:
+            # обновим gif_animator
+            if self.gif_animator.isVisible():
+                self.gif_animator.setGeometry(self.gif_label.geometry())
+                self.gif_animator.raise_()
+        except Exception:
+            pass
+
         super().resizeEvent(e)
+
 
     def mute_sound(self) -> None:
         VK_VOLUME_MUTE = 0xAD
