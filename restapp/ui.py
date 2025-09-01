@@ -300,9 +300,15 @@ class BreathingOverlay(QtWidgets.QWidget):
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
 
-        rect = self.rect()
-        center = rect.center()
-        min_side = min(rect.width(), rect.height())
+        # Центр шара — по центру гифки, независимо от overlay
+        if hasattr(self, "_gif_rect") and self._gif_rect:
+            gif_rect = self._gif_rect
+            center = QtCore.QPoint(gif_rect.x() + gif_rect.width() // 2, gif_rect.y() + gif_rect.height() // 2)
+            min_side = min(gif_rect.width(), gif_rect.height())
+        else:
+            rect = self.rect()
+            center = rect.center()
+            min_side = min(rect.width(), rect.height())
 
         base = 0.20 * min_side
         amp = 0.30 * min_side
@@ -677,17 +683,20 @@ class SleepTimer(QtWidgets.QWidget):
                 self.breathing_overlay.hide()
 
     def activate_breathing_mode(self) -> None:
-        """Показываем overlay шире гифки, чтобы кнопка была справа от шара."""
+        """Показываем overlay шире гифки, чтобы кнопка была справа, а шар по центру гифки."""
         try:
             gif_rect = self.gif_label.geometry()
             extra_space = 80  # ширина для кнопки справа
+            # overlay шире гифки, но начинается с гифки
             self.breathing_overlay.setGeometry(
                 self.gif_container.x() + gif_rect.x(),
                 self.gif_container.y() + gif_rect.y(),
                 gif_rect.width() + extra_space,
                 gif_rect.height()
             )
-            self.breathing_overlay.set_gif_geometry(gif_rect)  # <--- добавьте эту строку
+            # сдвигаем гифку на половину extra_space вправо внутри overlay
+            local_gif_rect = QtCore.QRect(extra_space // 2, 0, gif_rect.width(), gif_rect.height())
+            self.breathing_overlay.set_gif_geometry(local_gif_rect)
             try:
                 self.breathing_overlay.play_intro()
             except Exception:
@@ -699,7 +708,7 @@ class SleepTimer(QtWidgets.QWidget):
                 self.breathing_overlay.raise_()
             except Exception:
                 pass
-
+            
     def resizeEvent(self, e: QtGui.QResizeEvent) -> None:
         try:
             # обновим breathing_overlay
