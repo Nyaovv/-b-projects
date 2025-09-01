@@ -301,14 +301,8 @@ class BreathingOverlay(QtWidgets.QWidget):
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
 
         rect = self.rect()
-        # --- центр шара по центру гифки ---
-        if hasattr(self, "_gif_rect") and self._gif_rect:
-            gif_rect = self._gif_rect
-            center = QtCore.QPoint(gif_rect.x() + gif_rect.width() // 2, gif_rect.y() + gif_rect.height() // 2)
-            min_side = min(gif_rect.width(), gif_rect.height())
-        else:
-            center = rect.center()
-            min_side = min(rect.width(), rect.height())
+        center = rect.center()
+        min_side = min(rect.width(), rect.height())
 
         base = 0.20 * min_side
         amp = 0.30 * min_side
@@ -316,6 +310,8 @@ class BreathingOverlay(QtWidgets.QWidget):
         t = (self._elapsed.elapsed() / 1000.0) if self._elapsed.isValid() else 0.0
         t = t % self.cycle
         radius = self._radius_for_time(t, base, amp)
+
+        # --- применяем bounce scale ---
         radius *= getattr(self, "_bounce_scale", 1.0)
 
         alpha_factor = 1.0
@@ -681,17 +677,17 @@ class SleepTimer(QtWidgets.QWidget):
                 self.breathing_overlay.hide()
 
     def activate_breathing_mode(self) -> None:
-        """Показываем overlay шире гифки, чтобы шар не обрезался при bounce."""
+        """Показываем overlay шире гифки, чтобы кнопка была справа от шара."""
         try:
             gif_rect = self.gif_label.geometry()
-            extra_space = 80  # ширина для кнопки и для левого края
+            extra_space = 80  # ширина для кнопки справа
             self.breathing_overlay.setGeometry(
-                self.gif_container.x() + gif_rect.x() - extra_space // 2,
+                self.gif_container.x() + gif_rect.x(),
                 self.gif_container.y() + gif_rect.y(),
                 gif_rect.width() + extra_space,
                 gif_rect.height()
             )
-            self.breathing_overlay.set_gif_geometry(QtCore.QRect(extra_space // 2, 0, gif_rect.width(), gif_rect.height()))
+            self.breathing_overlay.set_gif_geometry(gif_rect)  # <--- добавьте эту строку
             try:
                 self.breathing_overlay.play_intro()
             except Exception:
@@ -710,13 +706,8 @@ class SleepTimer(QtWidgets.QWidget):
             if self.breathing_overlay.isVisible():
                 gif_rect = self.gif_container.geometry()
                 extra_space = 200
-                self.breathing_overlay.setGeometry(
-                    gif_rect.x() - extra_space // 2,
-                    gif_rect.y(),
-                    gif_rect.width() + extra_space,
-                    gif_rect.height()
-                )
-                self.breathing_overlay.set_gif_geometry(QtCore.QRect(extra_space // 2, 0, gif_rect.width(), gif_rect.height()))
+                self.breathing_overlay.setGeometry(gif_rect.x(), gif_rect.y(),
+                                                   gif_rect.width() + extra_space, gif_rect.height())
                 self.breathing_overlay.raise_()
         except Exception:
             pass
