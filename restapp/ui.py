@@ -683,19 +683,19 @@ class SleepTimer(QtWidgets.QWidget):
                 self.breathing_overlay.hide()
 
     def activate_breathing_mode(self) -> None:
-        """Показываем overlay шире гифки, чтобы кнопка была справа, а шар по центру гифки."""
+        """Показываем overlay шире гифки с обеих сторон, чтобы шар не обрезался при bounce."""
         try:
             gif_rect = self.gif_label.geometry()
-            extra_space = 80  # ширина для кнопки справа ы
-            # overlay шире гифки, но начинается с гифки
+            extra_space = 80  # ширина для кнопки и левого края
+            # overlay шире гифки, сдвигаем влево
             self.breathing_overlay.setGeometry(
-                self.gif_container.x() + gif_rect.x(),
+                self.gif_container.x() + gif_rect.x() - extra_space // 2,
                 self.gif_container.y() + gif_rect.y(),
                 gif_rect.width() + extra_space,
                 gif_rect.height()
             )
-            # центр шара = центр гифки, независимо от overlay
-            local_gif_rect = QtCore.QRect(0, 0, gif_rect.width(), gif_rect.height())
+            # центр шара = центр гифки, сдвигаем вправо на extra_space // 2
+            local_gif_rect = QtCore.QRect(extra_space // 2, 0, gif_rect.width(), gif_rect.height())
             self.breathing_overlay.set_gif_geometry(local_gif_rect)
             try:
                 self.breathing_overlay.play_intro()
@@ -716,13 +716,13 @@ class SleepTimer(QtWidgets.QWidget):
                 gif_rect = self.gif_container.geometry()
                 extra_space = 80  # должно совпадать с activate_breathing_mode!
                 self.breathing_overlay.setGeometry(
-                    gif_rect.x(),
+                    gif_rect.x() - extra_space // 2,
                     gif_rect.y(),
                     gif_rect.width() + extra_space,
                     gif_rect.height()
                 )
-                # центр шара = центр гифки, независимо от overlay
-                local_gif_rect = QtCore.QRect(0, 0, gif_rect.width(), gif_rect.height())
+                # центр шара = центр гифки, сдвигаем вправо на extra_space // 2
+                local_gif_rect = QtCore.QRect(extra_space // 2, 0, gif_rect.width(), gif_rect.height())
                 self.breathing_overlay.set_gif_geometry(local_gif_rect)
                 self.breathing_overlay.raise_()
         except Exception:
