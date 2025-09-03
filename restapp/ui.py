@@ -14,7 +14,10 @@ from PyQt5.QtWidgets import QStyleOptionSlider, QStyle
 import pygame
 
 from .audio import MEDIA, BREATH_CLICK
-from .utils import seconds_to_slider, slider_to_seconds
+from .utils import seconds_to_slider, slider_to_seconds, discover_scenes
+
+SCENES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'media', 'scenes')
+SCENES = discover_scenes(SCENES_DIR)
 
 # ------------------------------------------------------------------
 # Виджеты
@@ -476,11 +479,11 @@ class SleepTimer(QtWidgets.QWidget):
         # Кнопки-превью звуков
         sound_layout = QtWidgets.QHBoxLayout()
         self.sound_buttons = {}
-        for name, (wav, gif, preview, sfx) in MEDIA.items():
-            btn = SelectableButton("", preview)
-            btn.setIcon(QtGui.QIcon(preview))
+        for name, files in SCENES.items():
+            btn = SelectableButton("", files['png'])
+            btn.setIcon(QtGui.QIcon(files['png']))
             btn.setIconSize(QtCore.QSize(96, 96))
-            btn.clicked.connect(lambda _, n=name: self.on_sound_change(n))
+            btn.clicked.connect(lambda _, n=name: self.on_scene_change(n))
             sound_layout.addWidget(btn)
             self.sound_buttons[name] = btn
         root.addLayout(sound_layout)
@@ -506,12 +509,12 @@ class SleepTimer(QtWidgets.QWidget):
         self.update_ui()
         # установим дефолтный звук "Камин" (если есть)
         try:
-            self.on_sound_change("Камин")
+            self.on_scene_change("fire")
         except Exception:
             # на случай, если что-то не так с файлами, не ломаем запуск
             names = list(MEDIA.keys())
             if names:
-                self.on_sound_change(names[0])
+                self.on_scene_change(names[0])
 
         # загрузка эффекта дыхания (если файл существует)
         if os.path.exists(BREATH_CLICK):
@@ -521,6 +524,13 @@ class SleepTimer(QtWidgets.QWidget):
                 self.breath_effect = None
         else:
             self.breath_effect = None
+
+        # установим дефолтную сцену (если есть)
+        try:
+            first_scene = next(iter(SCENES.keys()))
+            self.on_scene_change(first_scene)
+        except Exception:
+            pass
 
     # ---------------- UI / таймер ----------------
 
@@ -586,17 +596,17 @@ class SleepTimer(QtWidgets.QWidget):
         self.settings.setValue("vol_is_zero", value == 0)
         self.label_vol.setText(f"Громкость: {value}%")
 
-    def on_sound_change(self, name: str) -> None:
-        """Переключение фонового звука + превью + кликовый эффект."""
+    def on_scene_change(self, name: str) -> None:
+        """Переключение сцены (фон, гиф, звук, эффект клика)."""
         # подсветка плиток
         for n, btn in self.sound_buttons.items():
             btn.setChecked(n == name)
 
         self.current_sound = name
-
-        wav, gif, preview, sfx = MEDIA.get(name, (None, None, None, None))
+        files = SCENES.get(name, {})
 
         # фон (pygame.music)
+        wav = files.get('ogg')
         if wav and os.path.exists(wav):
             try:
                 pygame.mixer.music.load(wav)
@@ -606,6 +616,7 @@ class SleepTimer(QtWidgets.QWidget):
                 pass
 
         # гифка
+        gif = files.get('gif')
         if gif and os.path.exists(gif):
             try:
                 movie = QtGui.QMovie(gif)
@@ -617,7 +628,8 @@ class SleepTimer(QtWidgets.QWidget):
         else:
             self.gif_label.clear()
 
-        # кликовый эффект (pygame.mixer.Sound)
+        # кликовый эффект (tap_ogg)
+        sfx = files.get('tap_ogg')
         if sfx and os.path.exists(sfx):
             try:
                 snd = pygame.mixer.Sound(sfx)
@@ -628,30 +640,24 @@ class SleepTimer(QtWidgets.QWidget):
         else:
             self.current_effect = None
 
-    def on_gif_clicked(self) -> None:
-        """Клик по гифке (играть sfx и считать клики для пасхалки)."""
-        now = time.time()
-        # keep clicks within 1.5-2s window
-        self.click_times = [t for t in self.click_times if now - t < 1.5]
-        self.click_times.append(now)
-
-        # плавное подпрыгивание
-        try:
-            self.gif_animator.start_bounce()
-        except Exception:
-            pass
-
-
+    def on_gif_clicked(self):
+        """Обработчик клика по гифке."""
+        print("Гифка нажата!")
         # воспроизведение клика-эффекта через свободный канал, с громкостью из ползунка
         if self.current_effect:
             try:
                 vol = self.slider_vol.value() / 100.0
                 ch = pygame.mixer.find_channel(True)
                 if ch:
-                    ch.set_volume(vol)   # громкость задаём на канале!
+                    ch.set_volume(vol)
                     ch.play(self.current_effect)
             except Exception:
                 pass
+
+        # добавляем клик в историю
+        now = time.time()
+        self.click_times = [t for t in self.click_times if now - t < 1.5]
+        self.click_times.append(now)
 
         # пасхалка: 5 кликов включают режим дыхания
         if len(self.click_times) >= 5:
@@ -709,7 +715,7 @@ class SleepTimer(QtWidgets.QWidget):
             except Exception:
                 pass
 
-    def resizeEvent(self, e: QtGui.QResizeEvent) -> None:
+    def resizeEvent(self, e: QtGui.QResizeEvent):
         try:
             # обновим breathing_overlay
             if self.breathing_overlay.isVisible():

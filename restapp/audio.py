@@ -1,6 +1,7 @@
 """Модуль для аудио-констант и инициализации."""
 
 import pygame
+from PyQt5 import QtWidgets
 
 pygame.mixer.init()
 pygame.mixer.set_num_channels(32)  # Чтобы клики могли накладываться
@@ -12,3 +13,4 @@ MEDIA = {
 }
 
 BREATH_CLICK = "breath.ogg"  # Отдельный клик для режима дыхания
+
