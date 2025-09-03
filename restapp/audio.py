@@ -1,5 +1,5 @@
 """Модуль для аудио-констант и инициализации."""
-
+import os
 import pygame
 from PyQt5 import QtWidgets
 
@@ -12,5 +12,4 @@ MEDIA = {
     "Дождь": ("rain.ogg", "rain.gif", "rain.png", "drop.ogg"),
 }
 
-BREATH_CLICK = "breath.ogg"  # Отдельный клик для режима дыхания
-
+BREATH_CLICK = os.path.join(os.path.dirname(os.path.dirname(__file__)), "media", "breath_tap.ogg") # Отдельный клик для режима дыхания

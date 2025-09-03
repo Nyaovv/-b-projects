@@ -653,12 +653,16 @@ class SleepTimer(QtWidgets.QWidget):
                     ch.play(self.current_effect)
             except Exception:
                 pass
-
+    
+        # --- ДОБАВЬ ЭТО ---
+        self.gif_animator.start_bounce()
+        # -----------------
+    
         # добавляем клик в историю
         now = time.time()
         self.click_times = [t for t in self.click_times if now - t < 1.5]
         self.click_times.append(now)
-
+    
         # пасхалка: 5 кликов включают режим дыхания
         if len(self.click_times) >= 5:
             self.click_times.clear()
