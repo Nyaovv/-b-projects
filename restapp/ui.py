@@ -436,7 +436,30 @@ class SleepTimer(QtWidgets.QWidget):
             """
         )
 
-        self.settings = QtCore.QSettings("RestApp", "SleepTimer")
+        # Сохранять настройки в INI-файл, а не в реестре
+        self.settings = QtCore.QSettings(QtCore.QSettings.IniFormat, QtCore.QSettings.UserScope, "RestApp", "SleepTimer")
+        print("Settings file:", self.settings.fileName())
+        # --- восстановление громкости ---
+        saved_vol = self.settings.value("volume", 200)
+        try:
+            saved_vol_int = int(float(saved_vol))
+        except Exception:
+            saved_vol_int = 200
+        # Если сохранено < 200, восстановить это значение. Если >= 200, всегда 200.
+        if saved_vol_int < 200:
+            self.slider_vol_value = saved_vol_int
+        else:
+            self.slider_vol_value = 200
+
+        # --- восстановление времени ---
+        saved_time = self.settings.value("minutes", 90)
+        try:
+            saved_time_int = int(float(saved_time))
+        except Exception:
+            saved_time_int = 90
+        if saved_time_int < 1 or saved_time_int > 240:
+            saved_time_int = 90
+        self.slider_time_value = saved_time_int
 
         root = QtWidgets.QVBoxLayout(self)
 
@@ -447,9 +470,13 @@ class SleepTimer(QtWidgets.QWidget):
         self.slider_time = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.slider_time.setMinimum(1)
         self.slider_time.setMaximum(240)
-        self.slider_time.setValue(90)
+        self.slider_time.setValue(self.slider_time_value)  # <-- восстановленное значение
+        self.remaining_time = self.slider_time_value * 60
         self.slider_time.valueChanged.connect(self.update_time_label)
         root.addWidget(self.slider_time)
+        # --- добавьте обработку клика по линии ---
+        self.slider_time.mousePressEvent = lambda event: self._slider_jump_to_pos(self.slider_time, event)
+        self.slider_time.mouseMoveEvent = lambda event: self._slider_jump_to_pos(self.slider_time, event)
 
         self.marks_minutes = [1, 10, 30, 60, 90, 120, 150, 180, 210, 240]
         self.max_minutes = 240
@@ -475,10 +502,17 @@ class SleepTimer(QtWidgets.QWidget):
         self.slider_vol = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.slider_vol.setMinimum(0)
         self.slider_vol.setMaximum(1000)
-        self.slider_vol.setValue(200)  # 20%
-        self.slider_vol.valueChanged.connect(self.update_volume_label)
+        # При изменении ползунка сразу вызываем change_volume,
+        # чтобы применить громкость и сохранить её в QSettings.
+        self.slider_vol.valueChanged.connect(self.change_volume)
         root.addWidget(self.slider_vol)
-        self.change_volume(self.slider_vol.value())
+        self.slider_vol.setValue(self.slider_vol_value)
+        # применяем и сохраняем восстановленное значение
+        self.change_volume(self.slider_vol_value)
+        print("Slider volume set to:", self.slider_vol.value())
+        # --- добавьте обработку клика по линии ---
+        self.slider_vol.mousePressEvent = lambda event: self._slider_jump_to_pos(self.slider_vol, event)
+        self.slider_vol.mouseMoveEvent = lambda event: self._slider_jump_to_pos(self.slider_vol, event)
 
         # Кнопка старта (единственная кнопка, потом меняет текст)
         self.btn_action = QtWidgets.QPushButton("Запустить таймер 🚀")
@@ -521,7 +555,6 @@ class SleepTimer(QtWidgets.QWidget):
 
         # Таймер
         self.max_time = self.max_minutes * 60
-        self.remaining_time = 90 * 60
         self.timer_active = False
         self.paused = False
         self.qtimer = QtCore.QTimer()
@@ -566,7 +599,8 @@ class SleepTimer(QtWidgets.QWidget):
     def update_time_label(self):
         minutes = self.slider_time.value()
         self.label_time.setText(f"Осталось: {minutes} мин. 00 сек.")
-        self.remaining_time = minutes * 60  # если нужно обновлять таймер
+        self.remaining_time = minutes * 60
+        self.settings.setValue("minutes", minutes)  # <-- сохраняем текущее значение времени
 
     # ---------------- UI / таймер ----------------
 
@@ -576,9 +610,9 @@ class SleepTimer(QtWidgets.QWidget):
         self.label_time.setText(f"Осталось: {mins} мин. {secs:02d} сек.")
         if not self.timer_active:
             self.slider_time.blockSignals(True)
-            self.slider_time.setValue(seconds_to_slider(self.remaining_time, self.max_time))
+            self.slider_time.setValue(mins)  # <-- выставляем минуты напрямую
             self.slider_time.blockSignals(False)
-
+            
     def on_slider_released(self) -> None:
         self.remaining_time = slider_to_seconds(self.slider_time.value(), self.max_time)
         self.update_ui()
@@ -604,7 +638,10 @@ class SleepTimer(QtWidgets.QWidget):
             minutes = self.remaining_time // 60
             seconds = self.remaining_time % 60
             self.label_time.setText(f"Осталось: {minutes} мин. {seconds:02d} сек.")
-            # НЕ обновляй self.slider_time.setValue(...) здесь!
+            # Обновляем ползунок времени
+            self.slider_time.blockSignals(True)
+            self.slider_time.setValue(minutes)
+            self.slider_time.blockSignals(False)
             if self.remaining_time <= 0:
                 self.qtimer.stop()
                 self.timer_active = False
@@ -616,7 +653,7 @@ class SleepTimer(QtWidgets.QWidget):
                     VK_VOLUME_MUTE = 0xAD
                     ctypes.windll.user32.keybd_event(VK_VOLUME_MUTE, 0, 0, 0)
                     ctypes.windll.user32.keybd_event(VK_VOLUME_MUTE, 0, 2, 0)
-            self.update_ui()
+        self.update_ui()
 
     # ---------------- громкость и звук ----------------
 
@@ -633,6 +670,7 @@ class SleepTimer(QtWidgets.QWidget):
             except Exception:
                 pass
         self.settings.setValue("vol_is_zero", value == 0)
+        self.settings.setValue("volume", value)  # сохраняем текущее значение (0..1000)
         self.label_vol.setText(f"Громкость: {value / 10:.0f}%")  # отображаем как 0..100%
 
     def update_volume_label(self):
@@ -654,7 +692,7 @@ class SleepTimer(QtWidgets.QWidget):
         if wav and os.path.exists(wav):
             try:
                 pygame.mixer.music.load(wav)
-                pygame.mixer.music.set_volume(self.slider_vol.value() / 100.0)
+                pygame.mixer.music.set_volume(self.slider_vol.value() / 1000.0)
                 pygame.mixer.music.play(-1)
             except Exception:
                 pass
@@ -677,7 +715,7 @@ class SleepTimer(QtWidgets.QWidget):
         if sfx and os.path.exists(sfx):
             try:
                 snd = pygame.mixer.Sound(sfx)
-                snd.set_volume(self.slider_vol.value() / 100.0)
+                snd.set_volume(self.slider_vol.value() / 1000.0)
                 self.current_effect = snd
             except Exception:
                 self.current_effect = None
@@ -691,7 +729,7 @@ class SleepTimer(QtWidgets.QWidget):
         # воспроизведение клика-эффекта через свободный канал, с громкостью из ползунка
         if self.current_effect:
             try:
-                vol = self.slider_vol.value() / 100.0
+                vol = self.slider_vol.value() / 1000.0
                 ch = pygame.mixer.find_channel(True)
                 if ch:
                     ch.set_volume(vol)
@@ -718,7 +756,7 @@ class SleepTimer(QtWidgets.QWidget):
         # Воспроизведение клика-эффекта даже в режиме дыхания
         if self.current_effect:
             try:
-                vol = self.slider_vol.value() / 100.0
+                vol = self.slider_vol.value() / 1000.0
                 ch = pygame.mixer.find_channel(True)
                 if ch:
                     ch.set_volume(vol)
@@ -802,13 +840,36 @@ class SleepTimer(QtWidgets.QWidget):
     def shutdown_pc(self) -> None:
         os.system("shutdown /s /f /t 0")
 
+    def _slider_jump_to_pos(self, slider, event):
+        opt = QStyleOptionSlider()
+        slider.initStyleOption(opt)
+        groove = slider.style().subControlRect(QStyle.CC_Slider, opt, QStyle.SC_SliderGroove, slider)
+        slider_min = slider.minimum()
+        slider_max = slider.maximum()
+        if slider.orientation() == QtCore.Qt.Horizontal:
+            pos = event.pos().x()
+            slider_length = groove.width()
+            slider_start = groove.x()
+            slider_end = groove.x() + groove.width()
+            pos = max(slider_start, min(pos, slider_end))
+            value = round(slider_min + ((pos - slider_start) / slider_length) * (slider_max - slider_min))
+        else:
+            pos = event.pos().y()
+            slider_length = groove.height()
+            slider_start = groove.y()
+            slider_end = groove.y() + groove.height()
+            pos = max(slider_start, min(pos, slider_end))
+            value = round(slider_min + ((pos - slider_start) / slider_length) * (slider_max - slider_min))
+        slider.setValue(value)
+        event.accept()
+
 class SceneScroller(QtWidgets.QScrollArea):
     def __init__(self, scene_buttons, parent=None):
         super().__init__(parent)
         self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         self.setWidgetResizable(True)
-        self.setFixedHeight(120)  # высота области сцен
+        self.setFixedHeight(120)
 
         container = QtWidgets.QWidget()
         self.layout = QtWidgets.QHBoxLayout(container)
@@ -822,7 +883,7 @@ class SceneScroller(QtWidgets.QScrollArea):
         self.fade_left = QtWidgets.QLabel(self)
         self.fade_left.setStyleSheet("""
             background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                        stop:0 #181A1B, stop:1 transparent);   
+                                        stop:0 #181A1B, stop:1 transparent);
         """)
         self.fade_left.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
 
@@ -838,17 +899,14 @@ class SceneScroller(QtWidgets.QScrollArea):
         self.fade_right.setGeometry(self.width()-32, 0, 32, self.height())
         super().resizeEvent(e)
 
-        # плавная анимация скролла
         self._scroll_anim = QtCore.QPropertyAnimation(self.horizontalScrollBar(), b"value")
         self._scroll_anim.setDuration(350)
         self._scroll_anim.setEasingCurve(QtCore.QEasingCurve.OutCubic)
-
-        # обработка колесика мыши
         self.setMouseTracking(True)
 
     def wheelEvent(self, event):
         delta = event.angleDelta().x() or event.angleDelta().y()
-        step = 120  # пикселей за одно колесо
+        step = 120
         new_value = self.horizontalScrollBar().value() - delta // 120 * step
         self.scroll_to(new_value)
         event.accept()
