@@ -198,7 +198,6 @@ class BreathingOverlay(QtWidgets.QWidget):
             QPushButton {
                 font-size: 20pt; font-weight: bold; color: #fff;
                 background: #D32F2F; border: none; border-radius: 20px;
-                padding: 8px 12px; box-shadow: 0 2px 8px #0008;
             }
             QPushButton:hover { background: #B71C1C; }
         """)
@@ -368,20 +367,23 @@ class SelectableButton(QtWidgets.QPushButton):
         self.setCursor(QtCore.Qt.PointingHandCursor)
         if icon:
             self.setIcon(QtGui.QIcon(icon))
-            self.setIconSize(QtCore.QSize(32, 32))
+            self.setIconSize(QtCore.QSize(80, 80))
         self.setStyleSheet("""
             QPushButton {
-                border: 2px solid #555;
-                border-radius: 12px;
-                padding: 12px;
-                background: #2E2E2E;
-                font-weight: 600;
-                color: #CCCCCC;
+                border: none;
+                background: transparent;
+                margin: 0 12px;
+                padding: 0;
             }
             QPushButton:checked {
-                border: 2px solid #90CAF9;
-                background: #424242;
-                color: #FFFFFF;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                           stop:0 #232526, stop:1 #313335);
+                border-radius: 24px;
+                outline: 2px solid #90CAF9;
+            }
+            QPushButton:hover {
+                background: #232526;
+                border-radius: 24px;
             }
         """)
 
@@ -395,6 +397,32 @@ class SleepTimer(QtWidgets.QWidget):
 
     def __init__(self):
         super().__init__()
+        self.setStyleSheet("""
+            QWidget {
+                background: #181A1B;
+                color: #F5F6F7;
+                font-family: 'SF Pro Display', 'Segoe UI', Arial, sans-serif;
+                font-size: 15pt;
+                border: none;
+            }
+            QLabel {
+                color: #F5F6F7;
+                font-weight: 500;
+            }
+            QSlider::groove:horizontal {
+                border: none;
+                height: 6px;
+                background: #232526;
+                border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                background: #90CAF9;
+                border: none;
+                width: 18px;
+                margin: -6px 0;
+                border-radius: 9px;
+            }
+        """)
         self.current_effect = None
         self.setWindowTitle("Таймер сна 💤")
         self.setGeometry(200, 200, 700, 600)
@@ -416,20 +444,21 @@ class SleepTimer(QtWidgets.QWidget):
         self.label_time = QtWidgets.QLabel()
         root.addWidget(self.label_time)
 
-        self.slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self.slider.setMinimum(0)
-        self.slider.setMaximum(1000)
-        self.slider.sliderReleased.connect(self.on_slider_released)
-        root.addWidget(self.slider)
+        self.slider_time = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.slider_time.setMinimum(1)
+        self.slider_time.setMaximum(240)
+        self.slider_time.setValue(90)
+        self.slider_time.valueChanged.connect(self.update_time_label)
+        root.addWidget(self.slider_time)
 
         self.marks_minutes = [1, 10, 30, 60, 90, 120, 150, 180, 210, 240]
         self.max_minutes = 240
-        root.addWidget(TickLabels(self.slider, self.marks_minutes, self.max_minutes))
+        root.addWidget(TickLabels(self.slider_time, self.marks_minutes, self.max_minutes))
 
         # Режимы (кнопки)
         mode_layout = QtWidgets.QHBoxLayout()
         self.btn_mute = SelectableButton("Выключить звук 🔇")
-        self.btn_shutdown = SelectableButton("Выключить ноут 💀")
+        self.btn_shutdown = SelectableButton("Выключить питание 💀")
         mode_layout.addWidget(self.btn_mute)
         mode_layout.addWidget(self.btn_shutdown)
         root.addLayout(mode_layout)
@@ -445,10 +474,9 @@ class SleepTimer(QtWidgets.QWidget):
 
         self.slider_vol = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.slider_vol.setMinimum(0)
-        self.slider_vol.setMaximum(100)
-        vol_is_zero = self.settings.value("vol_is_zero", False, type=bool)
-        self.slider_vol.setValue(0 if vol_is_zero else 20)
-        self.slider_vol.valueChanged.connect(self.change_volume)
+        self.slider_vol.setMaximum(1000)
+        self.slider_vol.setValue(200)  # 20%
+        self.slider_vol.valueChanged.connect(self.update_volume_label)
         root.addWidget(self.slider_vol)
         self.change_volume(self.slider_vol.value())
 
@@ -535,18 +563,24 @@ class SleepTimer(QtWidgets.QWidget):
         except Exception:
             pass
 
+    def update_time_label(self):
+        minutes = self.slider_time.value()
+        self.label_time.setText(f"Осталось: {minutes} мин. 00 сек.")
+        self.remaining_time = minutes * 60  # если нужно обновлять таймер
+
     # ---------------- UI / таймер ----------------
 
     def update_ui(self) -> None:
         mins = self.remaining_time // 60
         secs = self.remaining_time % 60
         self.label_time.setText(f"Осталось: {mins} мин. {secs:02d} сек.")
-        self.slider.blockSignals(True)
-        self.slider.setValue(seconds_to_slider(self.remaining_time, self.max_time))
-        self.slider.blockSignals(False)
+        if not self.timer_active:
+            self.slider_time.blockSignals(True)
+            self.slider_time.setValue(seconds_to_slider(self.remaining_time, self.max_time))
+            self.slider_time.blockSignals(False)
 
     def on_slider_released(self) -> None:
-        self.remaining_time = slider_to_seconds(self.slider.value(), self.max_time)
+        self.remaining_time = slider_to_seconds(self.slider_time.value(), self.max_time)
         self.update_ui()
 
     def on_action_button(self) -> None:
@@ -567,6 +601,10 @@ class SleepTimer(QtWidgets.QWidget):
     def update_countdown(self) -> None:
         if self.timer_active and not self.paused:
             self.remaining_time -= 1
+            minutes = self.remaining_time // 60
+            seconds = self.remaining_time % 60
+            self.label_time.setText(f"Осталось: {minutes} мин. {seconds:02d} сек.")
+            # НЕ обновляй self.slider_time.setValue(...) здесь!
             if self.remaining_time <= 0:
                 self.qtimer.stop()
                 self.timer_active = False
@@ -584,27 +622,30 @@ class SleepTimer(QtWidgets.QWidget):
 
     def change_volume(self, value: int) -> None:
         """Изменение громкости музыки и эффектов (слот получает int)."""
-        vol = (value or 0) / 100.0
+        vol = value / 1000.0  # диапазон 0..1000, делим на 1000
         try:
             pygame.mixer.music.set_volume(vol)
         except Exception:
             pass
-        # текущий эффект (клик)
         if self.current_effect is not None:
             try:
                 self.current_effect.set_volume(vol)
             except Exception:
                 pass
-
         self.settings.setValue("vol_is_zero", value == 0)
-        self.label_vol.setText(f"Громкость: {value}%")
+        self.label_vol.setText(f"Громкость: {value / 10:.0f}%")  # отображаем как 0..100%
+
+    def update_volume_label(self):
+        percent = self.slider_vol.value() / 10  # 0..100
+        self.label_vol.setText(f"Громкость: {percent:.0f}%")
+        pygame.mixer.music.set_volume(self.slider_vol.value() / 1000.0)
 
     def on_scene_change(self, name: str) -> None:
         """Переключение сцены (фон, гиф, звук, эффект клика)."""
         # подсветка плиток
         for btn in self.scroller.widget().findChildren(SelectableButton):
             btn.setChecked(btn.text() == name)
-            
+
         self.current_sound = name
         files = SCENES.get(name, {})
 
@@ -778,6 +819,24 @@ class SceneScroller(QtWidgets.QScrollArea):
             self.layout.addWidget(btn)
 
         self.setWidget(container)
+        self.fade_left = QtWidgets.QLabel(self)
+        self.fade_left.setStyleSheet("""
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                        stop:0 #181A1B, stop:1 transparent);   
+        """)
+        self.fade_left.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
+
+        self.fade_right = QtWidgets.QLabel(self)
+        self.fade_right.setStyleSheet("""
+            background: qlineargradient(x1:1, y1:0, x2:0, y2:0,
+                                        stop:0 rgba(24,26,27,1), stop:1 rgba(24,26,27,0));
+        """)
+        self.fade_right.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
+
+    def resizeEvent(self, e):
+        self.fade_left.setGeometry(0, 0, 32, self.height())
+        self.fade_right.setGeometry(self.width()-32, 0, 32, self.height())
+        super().resizeEvent(e)
 
         # плавная анимация скролла
         self._scroll_anim = QtCore.QPropertyAnimation(self.horizontalScrollBar(), b"value")
