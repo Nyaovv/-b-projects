@@ -477,16 +477,19 @@ class SleepTimer(QtWidgets.QWidget):
         self.gif_label.clicked.connect(self.on_gif_clicked)
 
         # Кнопки-превью звуков
-        sound_layout = QtWidgets.QHBoxLayout()
-        self.sound_buttons = {}
-        for name, files in SCENES.items():
+        scene_buttons = []
+        for idx, (name, files) in enumerate(SCENES.items()):
             btn = SelectableButton("", files['png'])
             btn.setIcon(QtGui.QIcon(files['png']))
             btn.setIconSize(QtCore.QSize(96, 96))
-            btn.clicked.connect(lambda _, n=name: self.on_scene_change(n))
-            sound_layout.addWidget(btn)
-            self.sound_buttons[name] = btn
-        root.addLayout(sound_layout)
+            btn.clicked.connect(lambda _, n=name, i=idx: (
+                self.on_scene_change(n),
+                self.scroller.center_scene(i)
+            ))
+            scene_buttons.append(btn)
+        
+        self.scroller = SceneScroller(scene_buttons)
+        root.addWidget(self.scroller)
 
         # Таймер
         self.max_time = self.max_minutes * 60
@@ -599,9 +602,9 @@ class SleepTimer(QtWidgets.QWidget):
     def on_scene_change(self, name: str) -> None:
         """Переключение сцены (фон, гиф, звук, эффект клика)."""
         # подсветка плиток
-        for n, btn in self.sound_buttons.items():
-            btn.setChecked(n == name)
-
+        for btn in self.scroller.widget().findChildren(SelectableButton):
+            btn.setChecked(btn.text() == name)
+            
         self.current_sound = name
         files = SCENES.get(name, {})
 
@@ -639,6 +642,7 @@ class SleepTimer(QtWidgets.QWidget):
                 self.current_effect = None
         else:
             self.current_effect = None
+
 
     def on_gif_clicked(self):
         """Обработчик клика по гифке."""
@@ -756,3 +760,51 @@ class SleepTimer(QtWidgets.QWidget):
 
     def shutdown_pc(self) -> None:
         os.system("shutdown /s /f /t 0")
+
+class SceneScroller(QtWidgets.QScrollArea):
+    def __init__(self, scene_buttons, parent=None):
+        super().__init__(parent)
+        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.setWidgetResizable(True)
+        self.setFixedHeight(120)  # высота области сцен
+
+        container = QtWidgets.QWidget()
+        self.layout = QtWidgets.QHBoxLayout(container)
+        self.layout.setSpacing(24)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+
+        for btn in scene_buttons:
+            self.layout.addWidget(btn)
+
+        self.setWidget(container)
+
+        # плавная анимация скролла
+        self._scroll_anim = QtCore.QPropertyAnimation(self.horizontalScrollBar(), b"value")
+        self._scroll_anim.setDuration(350)
+        self._scroll_anim.setEasingCurve(QtCore.QEasingCurve.OutCubic)
+
+        # обработка колесика мыши
+        self.setMouseTracking(True)
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta().x() or event.angleDelta().y()
+        step = 120  # пикселей за одно колесо
+        new_value = self.horizontalScrollBar().value() - delta // 120 * step
+        self.scroll_to(new_value)
+        event.accept()
+
+    def scroll_to(self, value):
+        value = max(0, min(value, self.horizontalScrollBar().maximum()))
+        self._scroll_anim.stop()
+        self._scroll_anim.setStartValue(self.horizontalScrollBar().value())
+        self._scroll_anim.setEndValue(value)
+        self._scroll_anim.start()
+
+    def center_scene(self, index):
+        btn = self.layout.itemAt(index).widget()
+        btn_x = btn.x()
+        btn_w = btn.width()
+        area_w = self.viewport().width()
+        target = btn_x + btn_w // 2 - area_w // 2
+        self.scroll_to(target)
