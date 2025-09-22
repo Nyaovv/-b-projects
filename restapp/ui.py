@@ -424,7 +424,7 @@ class SleepTimer(QtWidgets.QWidget):
             }
         """)
         self.current_effect = None
-        self.setWindowTitle("Таймер сна 💤")
+        self.setWindowTitle("RestApp")
         self.setGeometry(200, 200, 700, 600)
 
         self.setStyleSheet(
@@ -837,7 +837,7 @@ class SleepTimer(QtWidgets.QWidget):
         ctypes.windll.user32.keybd_event(VK_VOLUME_MUTE, 0, 0, 0)
         ctypes.windll.user32.keybd_event(VK_VOLUME_MUTE, 0, 2, 0)
 
-    def shutdown_pc(self) -> None:
+    def shutdown_pc(self) -> None: #режим вылючение ПК
         os.system("shutdown /s /f /t 0")
 
     def _slider_jump_to_pos(self, slider, event):
